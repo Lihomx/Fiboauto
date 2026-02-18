@@ -157,11 +157,65 @@ SYMBOLS_INDEX = [
     "DX-Y.NYB","^MOVE","^TNX","^TYX","^IRX",
 ]
 
-def get_symbols(selections: dict) -> list:
+SYMBOLS_US_LARGE_CAP = [
+    # 科技
+    "AAPL","MSFT","NVDA","GOOG","GOOGL","META","AMZN","TSLA","AVGO","AMD",
+    "INTC","QCOM","MU","TXN","AMAT","LRCX","KLAC","MRVL","ORCL","CRM",
+    "ADBE","SNOW","PLTR","PANW","CRWD","ZS","DDOG","NET","FTNT","OKTA",
+    "ARM","SMCI","MSTR","COIN","RBLX","U","UBER","LYFT","ABNB","DASH",
+    # 金融
+    "JPM","BAC","WFC","GS","MS","C","BLK","SCHW","AXP","V","MA","PYPL",
+    # 消费
+    "AMZN","COST","HD","WMT","TGT","LOW","NKE","SBUX","MCD","YUM","CMG",
+    # 医疗
+    "UNH","JNJ","LLY","PFE","ABBV","MRK","BMY","GILD","AMGN","BIIB",
+    # 能源
+    "XOM","CVX","COP","SLB","HAL","OXY","MPC","VLO","PSX",
+    # 电信/传媒
+    "NFLX","DIS","WBD","PARA","T","VZ","TMUS","CMCSA",
+    # 工业
+    "CAT","DE","HON","GE","BA","RTX","LMT","NOC","GD","MMM",
+    # 其他
+    "BRK-B","LEN","DHI","NUE","FCX","ALB","MP",
+]
+
+SYMBOLS_A_SHARES = [
+    # 沪市主板（600xxx）
+    "600000.SS","600016.SS","600019.SS","600028.SS","600030.SS",
+    "600036.SS","600048.SS","600050.SS","600104.SS","600196.SS",
+    "600276.SS","600309.SS","600346.SS","600406.SS","600436.SS",
+    "600519.SS","600547.SS","600570.SS","600585.SS","600600.SS",
+    "600690.SS","600703.SS","600745.SS","600809.SS","600837.SS",
+    "600887.SS","600900.SS","600905.SS","600941.SS","601006.SS",
+    "601012.SS","601066.SS","601088.SS","601111.SS","601138.SS",
+    "601166.SS","601169.SS","601211.SS","601229.SS","601288.SS",
+    "601318.SS","601328.SS","601398.SS","601601.SS","601628.SS",
+    "601658.SS","601688.SS","601727.SS","601766.SS","601788.SS",
+    "601818.SS","601857.SS","601888.SS","601899.SS","601919.SS",
+    "601939.SS","601988.SS","601998.SS","603259.SS","603288.SS",
+    "603501.SS","603799.SS","603986.SS",
+    # 科创板（688xxx）
+    "688008.SS","688009.SS","688012.SS","688036.SS","688041.SS",
+    "688111.SS","688122.SS","688169.SS","688187.SS","688223.SS",
+    "688256.SS","688271.SS","688363.SS","688396.SS","688599.SS",
+    # 深市主板 + 创业板（000xxx / 300xxx）
+    "000001.SZ","000002.SZ","000063.SZ","000100.SZ","000333.SZ",
+    "000568.SZ","000651.SZ","000725.SZ","000858.SZ","000895.SZ",
+    "001979.SZ","002001.SZ","002027.SZ","002049.SZ","002142.SZ",
+    "002230.SZ","002304.SZ","002352.SZ","002415.SZ","002594.SZ",
+    "002607.SZ","002714.SZ","002841.SZ","002916.SZ","300001.SZ",
+    "300014.SZ","300015.SZ","300033.SZ","300059.SZ","300122.SZ",
+    "300124.SZ","300133.SZ","300142.SZ","300146.SZ","300207.SZ",
+    "300274.SZ","300347.SZ","300413.SZ","300433.SZ","300498.SZ",
+    "300529.SZ","300558.SZ","300595.SZ","300628.SZ","300750.SZ",
+    "300760.SZ","300782.SZ","300999.SZ","301236.SZ","301390.SZ",
+]
     """合并多来源标的池并去重"""
     all_syms = []
     if selections.get("active_mix"):    all_syms += SYMBOLS_ACTIVE_MIX
     if selections.get("sp500_ndx"):     all_syms += _fetch_sp500_ndx()
+    if selections.get("us_stocks"):     all_syms += SYMBOLS_US_LARGE_CAP
+    if selections.get("a_shares"):      all_syms += SYMBOLS_A_SHARES
     if selections.get("etf"):           all_syms += SYMBOLS_ETF
     if selections.get("futures"):       all_syms += SYMBOLS_FUTURES
     if selections.get("forex"):         all_syms += SYMBOLS_FOREX
@@ -465,10 +519,10 @@ def backtest_single(symbol: str, timeframe: str, days: int, zones: list,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ZONE_BADGE_COLORS = {
-    "黄金回调区": "#f0b429",
-    "深度回调区": "#f97316",
-    "中度回调":   "#3b82f6",
-    "浅度回调":   "#a855f7",
+    "黄金回调区": "#d97706",  # 琥珀橙，白底清晰
+    "深度回调区": "#ea580c",  # 深橙
+    "中度回调":   "#2563eb",  # 蓝
+    "浅度回调":   "#7c3aed",  # 紫
 }
 
 def _badge(text: str, color: str, text_color: str = "#fff") -> str:
@@ -501,13 +555,13 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
 
     tf_headers = "".join(
         f'<th colspan="3" style="color:#d97706;text-align:center;padding:8px 12px;'
-        f'border-bottom:1px solid #e2e8f0">{TF_CONFIG[tf]["label"]}</th>'
+        f'border-bottom:1px solid #e2e8f0;background:#f8fafc;">{TF_CONFIG[tf]["label"]}</th>'
         for tf in timeframes
     )
     tf_sub = "".join(
-        f'<th style="{_th_style()}">方向</th>'
-        f'<th style="{_th_style()}">Fib位</th>'
-        f'<th style="{_th_style()}">命中区间</th>'
+        '<th style="padding:8px 10px;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b;">方向</th>'
+        '<th style="padding:8px 10px;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b;">Fib位</th>'
+        '<th style="padding:8px 10px;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b;">命中区间</th>'
         for _ in timeframes
     )
 
@@ -527,68 +581,88 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
                 break
 
         tf_cells = ""
+        TD = "padding:8px 10px;vertical-align:middle;white-space:nowrap"
         for tf in timeframes:
             tfd = r.get("tf_results", {}).get(tf, {})
             if "error" in tfd or not tfd:
-                tf_cells += f'<td colspan="3" style="color:#6b7280;text-align:center">—</td>'
+                tf_cells += f'<td colspan="3" style="color:#9ca3af;text-align:center">—</td>'
             else:
                 dir_b   = _dir_badge(tfd["direction"])
                 pos_pct = f'{tfd["fib_pos"] * 100:.1f}%'
                 zones_b = "".join(
-                    _badge(z, ZONE_BADGE_COLORS.get(z, "#374151"))
+                    _badge(z, ZONE_BADGE_COLORS.get(z, "#e2e8f0"), "#1e293b" if ZONE_BADGE_COLORS.get(z,"") in ["#fcd34d"] else "#fff")
                     for z in tfd["hit_zones"]
-                ) or '<span style="color:#6b7280">—</span>'
+                ) or '<span style="color:#9ca3af">—</span>'
                 tf_cells += (
-                    f'<td style="{_td_style()}">{dir_b}</td>'
-                    f'<td style="{_td_style()};text-align:center">{pos_pct}</td>'
-                    f'<td style="{_td_style()}">{zones_b}</td>'
+                    f'<td style="{TD}">{dir_b}</td>'
+                    f'<td style="{TD};text-align:center;color:#475569">{pos_pct}</td>'
+                    f'<td style="{TD}">{zones_b}</td>'
                 )
 
         conf_color = "#d97706" if conf >= 3 else ("#16a34a" if conf >= 2 else "#9ca3af")
+        TD = "padding:8px 10px;vertical-align:middle;white-space:nowrap"
         rows.append(f"""
-        <tr style="border-bottom:1px solid #f1f5f9;transition:background 0.2s"
-            onmouseover="this.style.background='#fef9ee'"
-            onmouseout="this.style.background='transparent'">
-          <td style="{_td_style()}">
+        <tr>
+          <td style="{TD}">
             <div style="font-weight:700;color:#1e293b">{sym}</div>
             {_badge(mkt, "transparent", mkt_color)}
           </td>
-          <td style="{_td_style()};text-align:center;color:#475569">{close_price}</td>
-          <td style="{_td_style()};text-align:center;color:{conf_color};font-size:16px"
+          <td style="{TD};text-align:center;color:#475569">{close_price}</td>
+          <td style="{TD};text-align:center;color:{conf_color};font-size:16px"
               title="{conf}/4 时间框架共振">{stars}</td>
           {tf_cells}
         </tr>
         """)
 
     rows_html = "\n".join(rows) if rows else (
-        '<tr><td colspan="20" style="text-align:center;padding:40px;color:#6b7280">'
-        '暂无命中结果，请调整扫描参数</td></tr>'
+        '<tr><td colspan="20" style="text-align:center;padding:40px;color:#9ca3af">'
+        '暂无命中结果，请降低最小共振分或扩大扫描区间</td></tr>'
     )
 
-    return f"""
-    <style>
-      .fiboauto-table {{font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; border-collapse:collapse; width:100%;}}
-      .fiboauto-table th {{background:#f8fafc; color:#d97706; font-size:12px; font-weight:700; border-bottom:2px solid #e2e8f0;}}
-      .fiboauto-table td {{font-size:13px; color:#1e293b;}}
-    </style>
-    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;color:#1e293b">
-      {summary}
-      <div style="overflow-x:auto">
-        <table class="fiboauto-table">
-          <thead>
-            <tr>
-              <th style="{_th_style()}" rowspan="2">标的</th>
-              <th style="{_th_style()}" rowspan="2">价格</th>
-              <th style="{_th_style()}" rowspan="2">共振</th>
-              {tf_headers}
-            </tr>
-            <tr>{tf_sub}</tr>
-          </thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-      </div>
-    </div>
-    """
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body {{ margin:0; padding:0; background:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; }}
+  .wrap {{ background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; }}
+  .cards {{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }}
+  .card {{ background:#fff; border-radius:8px; padding:10px 18px; min-width:90px;
+           text-align:center; box-shadow:0 1px 4px rgba(0,0,0,0.08); }}
+  .card-val {{ font-size:20px; font-weight:700; }}
+  .card-lbl {{ font-size:11px; color:#6b7280; margin-top:2px; }}
+  .tbl {{ border-collapse:collapse; width:100%; font-size:13px; }}
+  .tbl th {{ background:#f8fafc; color:#d97706; font-weight:700; font-size:12px;
+             padding:8px 10px; white-space:nowrap; border-bottom:2px solid #e2e8f0;
+             text-align:left; }}
+  .tbl td {{ padding:8px 10px; vertical-align:middle; white-space:nowrap;
+             color:#1e293b; border-bottom:1px solid #f1f5f9; }}
+  .tbl tr:hover td {{ background:#fef9ee; }}
+  .badge {{ display:inline-block; padding:2px 7px; border-radius:4px;
+            font-size:11px; font-weight:600; margin:1px; }}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="cards">
+    <div class="card"><div class="card-val" style="color:#d97706">{total}</div><div class="card-lbl">命中总数</div></div>
+    <div class="card"><div class="card-val" style="color:#16a34a">{conf4}</div><div class="card-lbl">4★共振</div></div>
+    <div class="card"><div class="card-val" style="color:#2563eb">{conf3}</div><div class="card-lbl">3★共振</div></div>
+    <div class="card"><div class="card-val" style="color:#16a34a">{bullish}</div><div class="card-lbl">上涨结构</div></div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th rowspan="2">标的</th>
+          <th rowspan="2">价格</th>
+          <th rowspan="2">共振</th>
+          {tf_headers}
+        </tr>
+        <tr>{tf_sub}</tr>
+      </thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+  </div>
+</div>
+</body></html>"""
 
 def _th_style():
     return "padding:8px 10px;white-space:nowrap;border-bottom:2px solid #2d3748"
@@ -809,8 +883,10 @@ if page == "🔍 扫描器":
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**核心品种**")
-            sel_active  = st.checkbox("🔥 活跃混合精选 (~200个)", value=True)
-            sel_sp500   = st.checkbox("🇺🇸 S&P500 + NDX100 (~600个)")
+            sel_active   = st.checkbox("🔥 活跃混合精选 (~200个)", value=True)
+            sel_sp500    = st.checkbox("🇺🇸 S&P500 + NDX100 (~600个)")
+            sel_us       = st.checkbox("🏦 美股大盘精选 (~130个)")
+            sel_a_shares = st.checkbox("🇨🇳 A股核心标的 (~130个)")
         with col2:
             st.markdown("**分类品种**")
             sel_etf     = st.checkbox("📦 全球ETF (~130个)")
@@ -829,6 +905,7 @@ if page == "🔍 扫描器":
         if fetch_btn:
             sel = {
                 "active_mix": sel_active, "sp500_ndx": sel_sp500,
+                "us_stocks":  sel_us,     "a_shares":  sel_a_shares,
                 "etf": sel_etf, "futures": sel_futures,
                 "forex": sel_forex, "crypto": sel_crypto, "index": sel_index,
             }
@@ -932,7 +1009,12 @@ if page == "🔍 扫描器":
         # 实时共振分过滤（无需重扫）
         disp_conf = st.slider("实时过滤：最小共振分", 1, 4, min_conf_disp, key="disp_conf_slider")
         html = build_results_html(st.session_state.scan_results, disp_conf, selected_tfs)
-        st.markdown(html, unsafe_allow_html=True)
+        # 用 components.v1.html 保证复杂 HTML 正确渲染（不被 Streamlit 转义）
+        import streamlit.components.v1 as components
+        # 动态计算高度：每行约 50px，最少 400px
+        filtered_count = sum(1 for r in st.session_state.scan_results if r.get("confluence", 0) >= disp_conf)
+        table_height = max(400, min(filtered_count * 52 + 220, 2400))
+        components.html(html, height=table_height, scrolling=True)
 
         # 加入实时监控
         if st.session_state.scan_results:
