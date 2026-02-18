@@ -48,10 +48,21 @@ PRESET_ZONES_DEF = {
 }
 
 TF_CONFIG = {
-    "4H":      {"interval": "1h",  "period": "60d",  "base_factor": 6,     "resample": "4h",  "label": "4小时"},
-    "Daily":   {"interval": "1d",  "period": "3y",   "base_factor": 1,     "resample": None,  "label": "日线"},
-    "Weekly":  {"interval": "1wk", "period": "5y",   "base_factor": 0.2,   "resample": None,  "label": "周线"},
-    "Monthly": {"interval": "1mo", "period": "10y",  "base_factor": 0.045, "resample": None,  "label": "月线"},
+    # MQL4: bars = Days * (PERIOD_D1 / Period())
+    # PERIOD_D1=1440, PERIOD_W1=10080, PERIOD_MN1=43200, PERIOD_H4=240
+    # Daily  : Days * (1440/1440) = Days * 1
+    # Weekly : Days * (1440/10080) = Days / 7  → 35天 = 5根周线
+    # Monthly: Days * (1440/43200) = Days / 30 → 35天 ≈ 1根月线
+    # 注意：bars 太少时 Fib 无意义，需要各时间框架独立拉取足够长的历史
+    # 正确做法：按时间框架对应的"日历天数"拉取数据，bars 用天数换算
+    "4H":      {"interval": "1h",  "period": "60d",  "days_factor": 1/0.167, "resample": "4h",  "label": "4小时",
+                "period_minutes": 240},
+    "Daily":   {"interval": "1d",  "period": "3y",   "days_factor": 1,       "resample": None,  "label": "日线",
+                "period_minutes": 1440},
+    "Weekly":  {"interval": "1wk", "period": "5y",   "days_factor": 1/7,     "resample": None,  "label": "周线",
+                "period_minutes": 10080},
+    "Monthly": {"interval": "1mo", "period": "10y",  "days_factor": 1/30,    "resample": None,  "label": "月线",
+                "period_minutes": 43200},
 }
 
 # 市场识别规则（用于徽章着色）
@@ -305,6 +316,11 @@ def _fetch_sp500_ndx() -> list:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_ohlcv(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
+    """
+    拉取指定时间框架的 OHLCV 数据。
+    每个时间框架独立拉取，确保有足够的历史 K 线。
+    4H：拉取 1H 数据后 resample。
+    """
     cfg = TF_CONFIG[timeframe]
     try:
         df = yf.Ticker(symbol).history(
@@ -312,6 +328,7 @@ def fetch_ohlcv(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
         )
         if df is None or df.empty:
             return None
+        # 4H：1H → 4H resample
         if cfg["resample"]:
             df = df.resample(cfg["resample"]).agg(
                 Open=("Open","first"), High=("High","max"),
@@ -319,66 +336,143 @@ def fetch_ohlcv(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
                 Volume=("Volume","sum"),
             ).dropna(subset=["Close"])
         df = df.dropna(subset=["High","Low","Close"])
-        return df if len(df) >= 5 else None
+        return df if len(df) >= 3 else None
     except Exception:
         return None
 
 
 def calc_bars(days: int, timeframe: str, asset_type: str = "crypto") -> int:
-    factor = TF_CONFIG[timeframe]["base_factor"]
-    if timeframe == "4H":
-        factor = 1.625 if asset_type == "us_stock" else (1.0 if asset_type == "a_stock" else 6.0)
-    return max(5, round(days * factor))
+    """
+    精确还原 MQL4: bars = Days * (PERIOD_D1 / Period())
+
+    PERIOD_D1  = 1440 分钟
+    PERIOD_W1  = 10080 分钟
+    PERIOD_MN1 = 43200 分钟
+    PERIOD_H4  = 240 分钟
+
+    例：Days=35
+      Daily  → 35 * (1440/1440)  = 35  根
+      Weekly → 35 * (1440/10080) = 5   根
+      Monthly→ 35 * (1440/43200) = 1.2 → 取 max(2, round) = 2 根
+      4H     → 35 * (1440/240)   = 210 根（24h交易）
+               35 * (1440/240) * (6.5/24) ≈ 56 根（美股交易时段）
+    """
+    PERIOD_D1 = 1440
+    pm = TF_CONFIG[timeframe]["period_minutes"]
+
+    raw = days * (PERIOD_D1 / pm)
+
+    # 4H 美股：每天只有 6.5 小时交易时段
+    if timeframe == "4H" and asset_type == "us_stock":
+        raw = days * (PERIOD_D1 / pm) * (6.5 / 24)
+    elif timeframe == "4H" and asset_type == "a_stock":
+        raw = days * (PERIOD_D1 / pm) * (4.0 / 24)
+
+    # 至少 2 根，避免单根无意义
+    return max(2, round(raw))
 
 
 def fiboauto_calc(df: pd.DataFrame, bars: int) -> Optional[dict]:
-    """MQL4 Fibo_auto 核心算法精确还原"""
-    if df is None or len(df) < max(bars, 5):
-        return None
-    window = df.tail(bars)
-    sw_hi  = float(window["High"].max())
-    sw_lo  = float(window["Low"].min())
-    rng    = sw_hi - sw_lo
-    if rng == 0:
+    """
+    MQL4 Fibo_auto 核心算法精确还原。
+
+    MQL4 逻辑：
+      bars = Days * (PERIOD_D1 / Period())
+      bar_high = iHighest(..., bars, 0)   ← 从当前 bar[0] 往前数 bars 根
+      bar_low  = iLowest(...,  bars, 0)
+      if bar_high < bar_low: Bullish（高点在低点的左边，即更新）
+      else: Bearish
+
+    Python 等价（index 0 = 最新 bar）：
+      idx_hi = 距今根数，越小越新
+      if idx_hi < idx_lo: Bullish
+    """
+    if df is None or len(df) < 2:
         return None
 
-    positions = list(window.index)
-    idx_hi = len(positions) - 1 - positions.index(window["High"].idxmax())
-    idx_lo = len(positions) - 1 - positions.index(window["Low"].idxmin())
+    # 实际可用 bars：不超过 df 长度
+    actual_bars = min(bars, len(df))
+    if actual_bars < 2:
+        actual_bars = len(df)   # 数据不足时用全部数据
 
-    # MQL4: bar_high < bar_low → 高点序号更小 → 高点更近 → Bearish
-    if idx_hi < idx_lo:
-        direction = "Bearish"
+    window = df.iloc[-actual_bars:]     # 取最近 actual_bars 根
+
+    sw_hi = float(window["High"].max())
+    sw_lo = float(window["Low"].min())
+    rng   = sw_hi - sw_lo
+    if rng < 1e-10:
+        return None
+
+    # 计算最高/最低点距今的位置（0=最新 bar，越大越早）
+    hi_loc = window["High"].values[::-1].argmax()   # 从末尾（最新）往前找
+    lo_loc = window["Low"].values[::-1].argmin()
+
+    # MQL4: bar_high < bar_low → 高点更近 → Bullish（价格从低点涨到高点，正在回调）
+    # Python: hi_loc < lo_loc → 高点离现在更近 → Bullish
+    if hi_loc < lo_loc:
+        direction = "Bullish"
+        # F[0]=低点(100%), F[6]=高点(0%), 中间各级从高点往下算
         levels = [
-            sw_hi,
-            sw_lo + 0.760 * rng,
-            sw_lo + 0.618 * rng,
-            sw_lo + 0.500 * rng,
-            sw_lo + 0.382 * rng,
-            sw_lo + 0.236 * rng,
-            sw_lo,
+            sw_lo,                    # F[0] = 100%（起点）
+            sw_hi - 0.760 * rng,      # F[1] = 76%
+            sw_hi - 0.618 * rng,      # F[2] = 61.8%
+            sw_hi - 0.500 * rng,      # F[3] = 50%
+            sw_hi - 0.382 * rng,      # F[4] = 38.2%
+            sw_hi - 0.236 * rng,      # F[5] = 23.6%
+            sw_hi,                    # F[6] = 0%（终点）
         ]
     else:
-        direction = "Bullish"
+        direction = "Bearish"
+        # F[0]=高点(100%), F[6]=低点(0%), 中间各级从低点往上算
         levels = [
-            sw_lo,
-            sw_hi - 0.760 * rng,
-            sw_hi - 0.618 * rng,
-            sw_hi - 0.500 * rng,
-            sw_hi - 0.382 * rng,
-            sw_hi - 0.236 * rng,
-            sw_hi,
+            sw_hi,                    # F[0] = 100%（起点）
+            sw_lo + 0.760 * rng,      # F[1] = 76%
+            sw_lo + 0.618 * rng,      # F[2] = 61.8%
+            sw_lo + 0.500 * rng,      # F[3] = 50%
+            sw_lo + 0.382 * rng,      # F[4] = 38.2%
+            sw_lo + 0.236 * rng,      # F[5] = 23.6%
+            sw_lo,                    # F[6] = 0%（终点）
         ]
-    return {"direction": direction, "swing_hi": sw_hi, "swing_lo": sw_lo,
-            "idx_hi": idx_hi, "idx_lo": idx_lo, "levels": levels, "fib_range": rng}
+
+    return {
+        "direction":  direction,
+        "swing_hi":   sw_hi,
+        "swing_lo":   sw_lo,
+        "idx_hi":     int(hi_loc),
+        "idx_lo":     int(lo_loc),
+        "levels":     levels,
+        "fib_range":  rng,
+        "bars_used":  actual_bars,
+    }
 
 
 def get_fib_position(close: float, result: dict) -> float:
-    lo = min(result["levels"][0], result["levels"][-1])
-    hi = max(result["levels"][0], result["levels"][-1])
-    if hi == lo: return 0.5
-    pos = (close - lo) / (hi - lo)
-    if result["direction"] == "Bullish": pos = 1.0 - pos
+    """
+    计算收盘价在 Fib 结构中的位置（0.0~1.0）。
+    0.0 = F[0] 端（100% 起点）
+    1.0 = F[6] 端（0% 终点）
+    0.5 = 50% 水平
+
+    Bullish: F[0]=低点, F[6]=高点 → pos=(close-lo)/(hi-lo)
+    Bearish: F[0]=高点, F[6]=低点 → pos=(hi-close)/(hi-lo)
+
+    返回值即 Fib 回调比例，如 0.618 表示在 61.8% 水平。
+    """
+    sw_hi = result["swing_hi"]
+    sw_lo = result["swing_lo"]
+    rng   = sw_hi - sw_lo
+    if rng < 1e-10:
+        return 0.5
+
+    if result["direction"] == "Bullish":
+        # 价格从低点涨到高点后回调，pos 表示回调深度
+        # close在高点=0(F[6]), close在低点=1(F[0])
+        pos = (sw_hi - close) / rng
+    else:
+        # 价格从高点跌到低点后反弹，pos 表示反弹幅度
+        # close在低点=0(F[6]), close在高点=1(F[0])
+        pos = (close - sw_lo) / rng
+
     return float(np.clip(pos, 0.0, 1.0))
 
 
@@ -414,6 +508,7 @@ def scan_one(symbol: str, days: int, timeframes: list, zones: list) -> dict:
             "swing_hi":  round(fib["swing_hi"], 6),
             "swing_lo":  round(fib["swing_lo"], 6),
             "close":     round(close, 6),
+            "bars_used": fib.get("bars_used", 0),
             "levels":    {lb: round(p, 6) for lb, p in zip(FIBO_LABELS, fib["levels"])},
         }
         if hit_zones: result["confluence"] += 1
@@ -646,15 +741,16 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
             if "error" in tfd or not tfd:
                 tf_cells += f'<td colspan="3" style="color:#9ca3af;text-align:center">—</td>'
             else:
-                dir_b   = _dir_badge(tfd["direction"])
-                pos_pct = f'{tfd["fib_pos"] * 100:.1f}%'
-                zones_b = "".join(
-                    _badge(z, ZONE_BADGE_COLORS.get(z, "#e2e8f0"), "#1e293b" if ZONE_BADGE_COLORS.get(z,"") in ["#fcd34d"] else "#fff")
+                dir_b    = _dir_badge(tfd["direction"])
+                pos_pct  = f'{tfd["fib_pos"] * 100:.1f}%'
+                bars_tip = f'回看{tfd.get("bars_used","?")}根K线 ▲{fmt_price(tfd["swing_hi"])} ▼{fmt_price(tfd["swing_lo"])}'
+                zones_b  = "".join(
+                    _badge(z, ZONE_BADGE_COLORS.get(z, "#6b7280"), "#fff")
                     for z in tfd["hit_zones"]
                 ) or '<span style="color:#9ca3af">—</span>'
                 tf_cells += (
                     f'<td style="{TD}">{dir_b}</td>'
-                    f'<td style="{TD};text-align:center;color:#475569">{pos_pct}</td>'
+                    f'<td style="{TD};text-align:center;color:#475569;cursor:help" title="{bars_tip}">{pos_pct}</td>'
                     f'<td style="{TD}">{zones_b}</td>'
                 )
 
