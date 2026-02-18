@@ -210,17 +210,76 @@ SYMBOLS_A_SHARES = [
     "300529.SZ","300558.SZ","300595.SZ","300628.SZ","300750.SZ",
     "300760.SZ","300782.SZ","300999.SZ","301236.SZ","301390.SZ",
 ]
+
+# ── 动态获取完整美股/A股列表 ────────────────────────────────────────────────
+
+@st.cache_data(ttl=86400)
+def _fetch_all_us_stocks() -> list:
+    """
+    通过 AlphaVantage LISTING_STATUS 接口获取全量美股，
+    失败时降级到内置 SYMBOLS_US_LARGE_CAP。
+    """
+    av_key = st.secrets.get("ALPHAVANTAGE_KEY", "demo")
+    url = f"https://www.alphavantage.co/query?function=LISTING_STATUS&apikey={av_key}"
+    try:
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200 and resp.text.strip():
+            lines = resp.text.strip().splitlines()
+            reader = csv.DictReader(lines)
+            syms = []
+            for row in reader:
+                s = row.get("symbol", "").strip()
+                status = row.get("status", "").strip().lower()
+                exchange = row.get("exchange", "").strip().upper()
+                asset_type = row.get("assetType", "").strip()
+                if s and status == "active" and exchange in ("NYSE", "NASDAQ", "AMEX"):
+                    syms.append(s)
+            if len(syms) > 500:
+                return syms
+    except Exception:
+        pass
+    return SYMBOLS_US_LARGE_CAP
+
+
+@st.cache_data(ttl=604800)   # 7天缓存
+def _fetch_all_a_shares() -> list:
+    """
+    生成全量A股候选代码（沪深两市），yfinance 会自动过滤无效/退市代码。
+    覆盖范围：
+      沪市主板   600000-603999 (.SS)
+      科创板     688000-688999 (.SS)
+      深市主板   000001-002999 (.SZ)
+      中小板     002000-002999 (.SZ，已并入主板）
+      创业板     300000-301999 (.SZ)
+    """
+    syms = []
+    # 沪市主板 + 科创板
+    for code in range(600000, 604000):
+        syms.append(f"{code:06d}.SS")
+    for code in range(688000, 689000):
+        syms.append(f"{code:06d}.SS")
+    # 深市主板 + 中小板 + 创业板
+    for code in range(1, 3000):
+        syms.append(f"{code:06d}.SZ")
+    for code in range(300000, 302000):
+        syms.append(f"{code:06d}.SZ")
+    return syms
+
+
+def get_symbols(selections: dict, us_full: bool = False, a_full: bool = False) -> list:
     """合并多来源标的池并去重"""
     all_syms = []
-    if selections.get("active_mix"):    all_syms += SYMBOLS_ACTIVE_MIX
-    if selections.get("sp500_ndx"):     all_syms += _fetch_sp500_ndx()
-    if selections.get("us_stocks"):     all_syms += SYMBOLS_US_LARGE_CAP
-    if selections.get("a_shares"):      all_syms += SYMBOLS_A_SHARES
-    if selections.get("etf"):           all_syms += SYMBOLS_ETF
-    if selections.get("futures"):       all_syms += SYMBOLS_FUTURES
-    if selections.get("forex"):         all_syms += SYMBOLS_FOREX
-    if selections.get("crypto"):        all_syms += SYMBOLS_CRYPTO
-    if selections.get("index"):         all_syms += SYMBOLS_INDEX
+    if selections.get("active_mix"):  all_syms += SYMBOLS_ACTIVE_MIX
+    if selections.get("sp500_ndx"):   all_syms += _fetch_sp500_ndx()
+    if selections.get("us_stocks"):
+        all_syms += (_fetch_all_us_stocks() if us_full else SYMBOLS_US_LARGE_CAP)
+    if selections.get("a_shares"):
+        all_syms += (_fetch_all_a_shares() if a_full else SYMBOLS_A_SHARES)
+    if selections.get("etf"):         all_syms += SYMBOLS_ETF
+    if selections.get("futures"):     all_syms += SYMBOLS_FUTURES
+    if selections.get("forex"):       all_syms += SYMBOLS_FOREX
+    if selections.get("crypto"):      all_syms += SYMBOLS_CRYPTO
+    if selections.get("index"):       all_syms += SYMBOLS_INDEX
     seen = set(); result = []
     for s in all_syms:
         if s not in seen:
@@ -885,8 +944,33 @@ if page == "🔍 扫描器":
             st.markdown("**核心品种**")
             sel_active   = st.checkbox("🔥 活跃混合精选 (~200个)", value=True)
             sel_sp500    = st.checkbox("🇺🇸 S&P500 + NDX100 (~600个)")
-            sel_us       = st.checkbox("🏦 美股大盘精选 (~130个)")
-            sel_a_shares = st.checkbox("🇨🇳 A股核心标的 (~130个)")
+
+            st.markdown("**美股**")
+            sel_us       = st.checkbox("🏦 美股（勾选后选择模式）", value=False)
+            if sel_us:
+                us_mode = st.radio(
+                    "美股范围",
+                    ["精选大盘股 (~130个，快)", "全量美股 (8000+个，慢，需AlphaVantage Key)"],
+                    index=0, horizontal=True,
+                )
+                us_full = "全量" in us_mode
+            else:
+                us_full = False
+
+            st.markdown("**A股**")
+            sel_a        = st.checkbox("🇨🇳 A股（勾选后选择模式）", value=False)
+            if sel_a:
+                a_mode = st.radio(
+                    "A股范围",
+                    ["核心蓝筹 (~130个，快)", "全量A股 (5000+个，很慢，建议设上限300)"],
+                    index=0, horizontal=True,
+                )
+                a_full = "全量" in a_mode
+                if a_full:
+                    st.warning("⚠️ 全量A股约5000+标的，含大量无效代码，建议将「最多扫描标的数」设为300-500，耗时约5-10分钟")
+            else:
+                a_full = False
+
         with col2:
             st.markdown("**分类品种**")
             sel_etf     = st.checkbox("📦 全球ETF (~130个)")
@@ -905,12 +989,12 @@ if page == "🔍 扫描器":
         if fetch_btn:
             sel = {
                 "active_mix": sel_active, "sp500_ndx": sel_sp500,
-                "us_stocks":  sel_us,     "a_shares":  sel_a_shares,
+                "us_stocks":  sel_us,     "a_shares":  sel_a,
                 "etf": sel_etf, "futures": sel_futures,
                 "forex": sel_forex, "crypto": sel_crypto, "index": sel_index,
             }
             with st.spinner("合并标的池…"):
-                st.session_state.symbols_pool = get_symbols(sel)
+                st.session_state.symbols_pool = get_symbols(sel, us_full=us_full, a_full=a_full)
             st.success(f"✅ 已合并标的 **{len(st.session_state.symbols_pool)}** 个")
             st.rerun()
 
