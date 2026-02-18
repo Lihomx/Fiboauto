@@ -1,13 +1,13 @@
 # .streamlit/config.toml
-# Fibo_auto Global Scanner v2.0 — Streamlit 主题配置
+# Fibo_auto Global Scanner v2.0 — Streamlit 主题配置（浅色）
 
 [theme]
-base = "dark"
-primaryColor         = "#f0b429"   # 金色主色调
-backgroundColor      = "#ffffff"   # 深黑背景
-secondaryBackgroundColor = "#111827"
-textColor            = "#e2e8f0"
-font                 = "monospace"
+base = "light"
+primaryColor         = "#d97706"   # 琥珀金主色调
+backgroundColor      = "#f8fafc"   # 浅灰白背景
+secondaryBackgroundColor = "#ffffff"
+textColor            = "#1e293b"   # 深灰黑文字
+font                 = "sans serif"
 
 [server]
 headless      = true

@@ -492,16 +492,16 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
 
     summary = f"""
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
-      {_stat_card("命中总数",    str(total),   "#f0b429")}
-      {_stat_card("4★共振",      str(conf4),   "#22c55e")}
-      {_stat_card("3★共振",      str(conf3),   "#3b82f6")}
-      {_stat_card("上涨结构",    str(bullish), "#22c55e")}
+      {_stat_card("命中总数",    str(total),   "#d97706")}
+      {_stat_card("4★共振",      str(conf4),   "#16a34a")}
+      {_stat_card("3★共振",      str(conf3),   "#2563eb")}
+      {_stat_card("上涨结构",    str(bullish), "#16a34a")}
     </div>
     """
 
     tf_headers = "".join(
-        f'<th colspan="3" style="color:#f0b429;text-align:center;padding:8px 12px;'
-        f'border-bottom:1px solid #2d3748">{TF_CONFIG[tf]["label"]}</th>'
+        f'<th colspan="3" style="color:#d97706;text-align:center;padding:8px 12px;'
+        f'border-bottom:1px solid #e2e8f0">{TF_CONFIG[tf]["label"]}</th>'
         for tf in timeframes
     )
     tf_sub = "".join(
@@ -544,16 +544,16 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
                     f'<td style="{_td_style()}">{zones_b}</td>'
                 )
 
-        conf_color = "#f0b429" if conf >= 3 else ("#22c55e" if conf >= 2 else "#9ca3af")
+        conf_color = "#d97706" if conf >= 3 else ("#16a34a" if conf >= 2 else "#9ca3af")
         rows.append(f"""
-        <tr style="border-bottom:1px solid #1e2433;transition:background 0.2s"
-            onmouseover="this.style.background='#1a2035'"
+        <tr style="border-bottom:1px solid #f1f5f9;transition:background 0.2s"
+            onmouseover="this.style.background='#fef9ee'"
             onmouseout="this.style.background='transparent'">
           <td style="{_td_style()}">
-            <div style="font-weight:700;color:#e2e8f0">{sym}</div>
+            <div style="font-weight:700;color:#1e293b">{sym}</div>
             {_badge(mkt, "transparent", mkt_color)}
           </td>
-          <td style="{_td_style()};text-align:center;color:#94a3b8">{close_price}</td>
+          <td style="{_td_style()};text-align:center;color:#475569">{close_price}</td>
           <td style="{_td_style()};text-align:center;color:{conf_color};font-size:16px"
               title="{conf}/4 时间框架共振">{stars}</td>
           {tf_cells}
@@ -567,11 +567,11 @@ def build_results_html(results: list, min_confluence: int, timeframes: list) -> 
 
     return f"""
     <style>
-      .fiboauto-table {{font-family: 'Courier New', monospace; border-collapse:collapse; width:100%;}}
-      .fiboauto-table th {{background:#1a1f2e; color:#f0b429; font-size:12px; font-weight:600;}}
-      .fiboauto-table td {{font-size:12px;}}
+      .fiboauto-table {{font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; border-collapse:collapse; width:100%;}}
+      .fiboauto-table th {{background:#f8fafc; color:#d97706; font-size:12px; font-weight:700; border-bottom:2px solid #e2e8f0;}}
+      .fiboauto-table td {{font-size:13px; color:#1e293b;}}
     </style>
-    <div style="background:#0a0c10;border-radius:12px;padding:20px;color:#e2e8f0">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;color:#1e293b">
       {summary}
       <div style="overflow-x:auto">
         <table class="fiboauto-table">
@@ -597,10 +597,10 @@ def _td_style():
     return "padding:8px 10px;vertical-align:middle;white-space:nowrap"
 
 def _stat_card(label: str, value: str, color: str) -> str:
-    return (f'<div style="background:#111827;border:1px solid {color}33;border-radius:8px;'
-            f'padding:12px 20px;min-width:100px;text-align:center">'
+    return (f'<div style="background:#fff;border:1px solid {color}44;border-radius:8px;'
+            f'padding:12px 20px;min-width:100px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.06)">'
             f'<div style="font-size:22px;font-weight:700;color:{color}">{value}</div>'
-            f'<div style="font-size:11px;color:#9ca3af;margin-top:2px">{label}</div></div>')
+            f'<div style="font-size:11px;color:#6b7280;margin-top:2px">{label}</div></div>')
 
 def fmt_price(p: float) -> str:
     if p == 0: return "—"
@@ -674,51 +674,103 @@ def init_session():
 init_session()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. 暗色主题 CSS
+# 8. 浅色主题 CSS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
 <style>
-/* 全局背景 */
-.stApp { background-color: #0a0c10; color: #e2e8f0; }
-[data-testid="stSidebar"] { background-color: #0f1117; border-right: 1px solid #1e2433; }
-[data-testid="stSidebar"] .stMarkdown { color: #94a3b8; }
+/* ── 全局背景与文字 ── */
+.stApp { background-color: #f8fafc; color: #1e293b; }
+[data-testid="stSidebar"] {
+  background-color: #ffffff;
+  border-right: 1px solid #e2e8f0;
+}
+[data-testid="stSidebar"] * { color: #374151 !important; }
 
-/* 按钮样式 */
+/* ── 按钮 ── */
 .stButton > button {
   background: linear-gradient(135deg, #d97706, #b45309);
-  color: #fff; border: none; border-radius: 6px;
-  font-weight: 600; transition: all 0.2s;
+  color: #ffffff !important;
+  border: none; border-radius: 6px;
+  font-weight: 600; font-size: 14px;
+  transition: all 0.2s;
 }
-.stButton > button:hover { background: linear-gradient(135deg, #f0b429, #d97706); }
+.stButton > button:hover {
+  background: linear-gradient(135deg, #f0b429, #d97706);
+  color: #ffffff !important;
+}
 
-/* 输入控件 */
-.stSlider [data-baseweb="slider"] div { background: #f0b429 !important; }
-.stSelectbox [data-baseweb="select"] { background: #111827; border-color: #2d3748; }
-.stMultiSelect [data-baseweb="select"] { background: #111827; }
-.stCheckbox label span { color: #e2e8f0; }
-.stTextInput input { background: #111827; color: #e2e8f0; border-color: #2d3748; }
-.stNumberInput input { background: #111827; color: #e2e8f0; border-color: #2d3748; }
+/* ── 下载按钮 ── */
+.stDownloadButton > button {
+  background: #f1f5f9;
+  color: #1e293b !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px; font-weight: 600;
+}
+.stDownloadButton > button:hover {
+  background: #e2e8f0;
+  color: #1e293b !important;
+}
 
-/* 进度条 */
-.stProgress > div > div { background: #f0b429 !important; }
+/* ── 滑块 ── */
+.stSlider [data-baseweb="slider"] div[role="slider"] { background: #d97706 !important; }
+.stSlider [data-testid="stThumbValue"] { color: #1e293b !important; }
 
-/* 提示框 */
-.stAlert { background: #1a1f2e; border-color: #2d3748; }
+/* ── 输入框、下拉、多选 ── */
+.stTextInput input, .stNumberInput input {
+  background: #ffffff; color: #1e293b;
+  border: 1px solid #cbd5e1; border-radius: 6px;
+}
+.stTextInput input:focus, .stNumberInput input:focus { border-color: #d97706; }
+.stSelectbox [data-baseweb="select"] > div { background: #ffffff; color: #1e293b; border-color: #cbd5e1; }
+.stMultiSelect [data-baseweb="select"] > div { background: #ffffff; color: #1e293b; }
 
-/* Tab 样式 */
-.stTabs [data-baseweb="tab"] { color: #94a3b8; font-weight: 600; }
-.stTabs [aria-selected="true"] { color: #f0b429; border-bottom-color: #f0b429; }
+/* ── Checkbox 标签文字 ── */
+.stCheckbox label, .stCheckbox label span, .stCheckbox label p { color: #1e293b !important; }
+.stRadio label, .stRadio label span, .stRadio label p { color: #1e293b !important; }
 
-/* Metric */
-[data-testid="stMetric"] { background: #111827; border-radius: 8px; padding: 12px; }
-[data-testid="stMetricValue"] { color: #f0b429; }
+/* ── 进度条 ── */
+.stProgress > div > div { background: #d97706 !important; }
 
-/* 分割线 */
-hr { border-color: #1e2433; }
+/* ── 提示框 ── */
+.stAlert { background: #fffbeb; border-color: #fcd34d; color: #1e293b; }
+.stAlert p { color: #1e293b !important; }
 
-/* 标题 */
-h1, h2, h3 { color: #f0b429 !important; }
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab"] { color: #64748b; font-weight: 600; }
+.stTabs [aria-selected="true"] { color: #d97706; border-bottom-color: #d97706; }
+
+/* ── Metric ── */
+[data-testid="stMetric"] {
+  background: #ffffff; border: 1px solid #e2e8f0;
+  border-radius: 8px; padding: 12px;
+}
+[data-testid="stMetricValue"] { color: #d97706; }
+[data-testid="stMetricLabel"] { color: #64748b !important; }
+
+/* ── 标题 ── */
+h1, h2, h3 { color: #1e293b !important; }
+h1 { border-bottom: 2px solid #d97706; padding-bottom: 8px; }
+
+/* ── 分割线 ── */
+hr { border-color: #e2e8f0; }
+
+/* ── Expander ── */
+[data-testid="stExpander"] { border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; }
+[data-testid="stExpander"] summary { color: #1e293b !important; font-weight: 600; }
+
+/* ── DataFrame 表格 ── */
+.stDataFrame { border: 1px solid #e2e8f0; border-radius: 8px; }
+
+/* ── Caption / 说明文字 ── */
+.stCaption, .stCaption p { color: #64748b !important; }
+
+/* ── Toast ── */
+[data-testid="stToast"] { background: #ffffff; color: #1e293b; border: 1px solid #e2e8f0; }
+
+/* ── 通用文本 ── */
+p, span, label, div { color: #1e293b; }
+.stMarkdown p { color: #374151; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -730,7 +782,7 @@ with st.sidebar:
     st.markdown("""
     <div style="text-align:center;padding:16px 0">
       <div style="font-size:28px">📈</div>
-      <div style="font-size:18px;font-weight:700;color:#f0b429">Fibo_auto</div>
+      <div style="font-size:18px;font-weight:700;color:#d97706">Fibo_auto</div>
       <div style="font-size:11px;color:#6b7280">Global Scanner v2.0</div>
     </div>
     """, unsafe_allow_html=True)
@@ -742,7 +794,7 @@ with st.sidebar:
         label_visibility="hidden",
     )
     st.divider()
-    st.markdown('<div style="font-size:11px;color:#4b5563;text-align:center">MQL4 Fibo_auto 精确还原<br>PRD v2.0 © 2025</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:11px;color:#9ca3af;text-align:center">MQL4 Fibo_auto 精确还原<br>PRD v2.0 © 2025</div>', unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 10. 主页面 — 扫描器
@@ -979,14 +1031,14 @@ elif page == "📡 实时监控":
 
         st.divider()
         st.markdown("""
-        <div style="background:#111827;border-radius:8px;padding:16px;border:1px solid #1e2433">
-          <div style="color:#f0b429;font-weight:700;margin-bottom:8px">📡 数据源连接状态</div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <span>🟡 Binance WS <em style="color:#6b7280">（加密货币实时推送，需配置 API Key）</em></span><br>
-            <span>🟡 Alpaca WS <em style="color:#6b7280">（美股实时报价，需配置 Alpaca 账户）</em></span><br>
-            <span>🟢 yfinance 轮询 <em style="color:#6b7280">（所有资产，30秒延迟，当前激活）</em></span>
+        <div style="background:#fffbeb;border-radius:8px;padding:16px;border:1px solid #fcd34d;margin-top:16px">
+          <div style="color:#d97706;font-weight:700;margin-bottom:8px">📡 数据源连接状态</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;color:#374151">
+            <span>🟡 Binance WS <em style="color:#9ca3af">（加密货币实时推送，需配置 API Key）</em></span><br>
+            <span>🟡 Alpaca WS <em style="color:#9ca3af">（美股实时报价，需配置 Alpaca 账户）</em></span><br>
+            <span>🟢 yfinance 轮询 <em style="color:#9ca3af">（所有资产，30秒延迟，当前激活）</em></span>
           </div>
-          <div style="margin-top:12px;font-size:12px;color:#6b7280">
+          <div style="margin-top:12px;font-size:12px;color:#9ca3af">
             在 Streamlit Cloud Secrets 中配置 BINANCE_API_KEY / ALPACA_KEY / ALPACA_SECRET
             以启用实时 WebSocket 推送，实现 &lt;100ms 预警延迟。
           </div>
@@ -1168,11 +1220,11 @@ elif page == "⭐ 标的池管理":
     # ── 团队标的池 ────────────────────────────────────────────────────────────
     with tab_team:
         st.markdown("""
-        <div style="background:#111827;border-radius:8px;padding:20px;border:1px solid #1e2433;margin-bottom:16px">
-          <div style="color:#f0b429;font-weight:700;font-size:16px">👥 团队标的池功能</div>
-          <div style="color:#94a3b8;margin-top:8px">
+        <div style="background:#fffbeb;border-radius:8px;padding:20px;border:1px solid #fcd34d;margin-bottom:16px">
+          <div style="color:#d97706;font-weight:700;font-size:16px">👥 团队标的池功能</div>
+          <div style="color:#374151;margin-top:8px">
             团队标的池允许多用户共享同一标的列表，支持实时同步与权限管理。<br>
-            生产部署时需配置 <strong style="color:#f0b429">Supabase PostgreSQL</strong> 数据库。
+            生产部署时需配置 <strong style="color:#d97706">Supabase PostgreSQL</strong> 数据库。
           </div>
         </div>
         """, unsafe_allow_html=True)
