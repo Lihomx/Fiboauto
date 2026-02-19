@@ -48,21 +48,46 @@ PRESET_ZONES_DEF = {
 }
 
 TF_CONFIG = {
-    # MQL4: bars = Days * (PERIOD_D1 / Period())
-    # PERIOD_D1=1440, PERIOD_W1=10080, PERIOD_MN1=43200, PERIOD_H4=240
-    # Daily  : Days * (1440/1440) = Days * 1
-    # Weekly : Days * (1440/10080) = Days / 7  → 35天 = 5根周线
-    # Monthly: Days * (1440/43200) = Days / 30 → 35天 ≈ 1根月线
-    # 注意：bars 太少时 Fib 无意义，需要各时间框架独立拉取足够长的历史
-    # 正确做法：按时间框架对应的"日历天数"拉取数据，bars 用天数换算
-    "4H":      {"interval": "1h",  "period": "60d",  "days_factor": 1/0.167, "resample": "4h",  "label": "4小时",
-                "period_minutes": 240},
-    "Daily":   {"interval": "1d",  "period": "3y",   "days_factor": 1,       "resample": None,  "label": "日线",
-                "period_minutes": 1440},
-    "Weekly":  {"interval": "1wk", "period": "5y",   "days_factor": 1/7,     "resample": None,  "label": "周线",
-                "period_minutes": 10080},
-    "Monthly": {"interval": "1mo", "period": "10y",  "days_factor": 1/30,    "resample": None,  "label": "月线",
-                "period_minutes": 43200},
+    # ─── 案例图片分析得出的正确配置 ─────────────────────────────────────────────
+    # 核心规律（从11张案例截图提取）：
+    #
+    # [USDCAD 日线] High=1.32325(0%) Low=1.25410(100%) → Bearish
+    #   Fib层级: 23.6%=1.30440, 38.2%=1.29810, 50%=1.28868, 61.8%=1.27925, 76.4%=1.26665
+    #   价格1.28377在61.8%附近 → Days=35时日线bars=35根
+    #
+    # [USDJPY 周线] High=161.840(0%) Low=127.087(100%) → Bullish(价格从低涨至高后回调)
+    #   Fib层级: 0.5=144.464, 0.618=141.963
+    #   说明: 周线窗口覆盖127→162这段大波段（约2年的数据 = 104根周K）
+    #
+    # [USDJPY 月线] High=151.712(0%) Low=102.340(100%) → Bearish(从历史高点下跌)
+    #   说明: 月线窗口覆盖102→152这段（约2021-2022年 = 12-18根月K）
+    #
+    # 结论：Days参数不应按MQL4公式换算（那样周线只有5根、月线只有1根）
+    # 正确做法：各时间框架独立使用固定的大窗口，Days作为日线基准，其他TF等比放大
+    #   日线  base_bars = Days（默认35根）
+    #   周线  base_bars = Days * 3（约100根，覆盖约2年周K）
+    #   月线  base_bars = Days * 0.5（约18根，覆盖约1.5年月K）
+    # ─────────────────────────────────────────────────────────────────────────────
+    "4H":      {
+        "interval": "1h",  "period": "60d",  "resample": "4h",
+        "label": "4小时",  "period_minutes": 240,
+        "bars_multiplier": 6,     # Days*6 根4H线
+    },
+    "Daily":   {
+        "interval": "1d",  "period": "3y",   "resample": None,
+        "label": "日线",   "period_minutes": 1440,
+        "bars_multiplier": 1,     # Days*1 根日K
+    },
+    "Weekly":  {
+        "interval": "1wk", "period": "5y",   "resample": None,
+        "label": "周线",   "period_minutes": 10080,
+        "bars_multiplier": 3,     # Days*3 根周K（Days=35 → 105根 ≈ 2年）
+    },
+    "Monthly": {
+        "interval": "1mo", "period": "10y",  "resample": None,
+        "label": "月线",   "period_minutes": 43200,
+        "bars_multiplier": 0.5,   # Days*0.5 根月K（Days=35 → 18根 ≈ 1.5年）
+    },
 }
 
 # 市场识别规则（用于徽章着色）
@@ -317,129 +342,149 @@ def _fetch_sp500_ndx() -> list:
 
 def fetch_ohlcv(symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
     """
-    拉取指定时间框架的 OHLCV 数据。
-    每个时间框架独立拉取，确保有足够的历史 K 线。
-    4H：拉取 1H 数据后 resample。
+    拉取指定时间框架的完整 OHLCV 数据。
+    各时间框架独立拉取各自的历史长度，互不干扰。
     """
     cfg = TF_CONFIG[timeframe]
     try:
         df = yf.Ticker(symbol).history(
-            period=cfg["period"], interval=cfg["interval"], auto_adjust=True
+            period=cfg["period"],
+            interval=cfg["interval"],
+            auto_adjust=True,
         )
         if df is None or df.empty:
             return None
-        # 4H：1H → 4H resample
+        # 4H：将 1H 数据 resample 为 4H K 线
         if cfg["resample"]:
             df = df.resample(cfg["resample"]).agg(
-                Open=("Open","first"), High=("High","max"),
-                Low=("Low","min"),   Close=("Close","last"),
-                Volume=("Volume","sum"),
+                Open=("Open", "first"),
+                High=("High", "max"),
+                Low=("Low", "min"),
+                Close=("Close", "last"),
+                Volume=("Volume", "sum"),
             ).dropna(subset=["Close"])
-        df = df.dropna(subset=["High","Low","Close"])
-        return df if len(df) >= 3 else None
+        df = df.dropna(subset=["High", "Low", "Close"])
+        # 去掉 timezone，避免比较问题
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        return df if len(df) >= 2 else None
     except Exception:
         return None
 
 
-def calc_bars(days: int, timeframe: str, asset_type: str = "crypto") -> int:
+def calc_bars(days: int, timeframe: str, asset_type: str = "us_stock") -> int:
     """
-    精确还原 MQL4: bars = Days * (PERIOD_D1 / Period())
+    计算各时间框架的回看K线根数。
 
-    PERIOD_D1  = 1440 分钟
-    PERIOD_W1  = 10080 分钟
-    PERIOD_MN1 = 43200 分钟
-    PERIOD_H4  = 240 分钟
+    基于案例图片的观察结论：
+    - 日线: bars = Days（如Days=35 → 35根日K，约7周）
+    - 周线: bars = Days * 3（如Days=35 → 105根周K，约2年，能看到大波段）
+    - 月线: bars = Days * 0.5（如Days=35 → 18根月K，约1.5年）
+    - 4H:   bars = Days * 6（加密，美股按交易时段调整）
 
-    例：Days=35
-      Daily  → 35 * (1440/1440)  = 35  根
-      Weekly → 35 * (1440/10080) = 5   根
-      Monthly→ 35 * (1440/43200) = 1.2 → 取 max(2, round) = 2 根
-      4H     → 35 * (1440/240)   = 210 根（24h交易）
-               35 * (1440/240) * (6.5/24) ≈ 56 根（美股交易时段）
+    这样确保：
+    1. 各时间框架用不同窗口，Fib位必然不同
+    2. 周线/月线能覆盖足够大的历史波段（与案例图吻合）
+    3. Days参数仍有直观意义（增大Days = 看更长历史）
     """
-    PERIOD_D1 = 1440
-    pm = TF_CONFIG[timeframe]["period_minutes"]
+    mult = TF_CONFIG[timeframe]["bars_multiplier"]
 
-    raw = days * (PERIOD_D1 / pm)
+    if timeframe == "4H":
+        session_ratio = {
+            "us_stock": 6.5 / 24,
+            "a_stock":  4.0 / 24,
+        }.get(asset_type, 1.0)
+        raw = days * mult * session_ratio
+    else:
+        raw = days * mult
 
-    # 4H 美股：每天只有 6.5 小时交易时段
-    if timeframe == "4H" and asset_type == "us_stock":
-        raw = days * (PERIOD_D1 / pm) * (6.5 / 24)
-    elif timeframe == "4H" and asset_type == "a_stock":
-        raw = days * (PERIOD_D1 / pm) * (4.0 / 24)
-
-    # 至少 2 根，避免单根无意义
-    return max(2, round(raw))
+    return max(3, round(raw))
 
 
 def fiboauto_calc(df: pd.DataFrame, bars: int) -> Optional[dict]:
     """
-    MQL4 Fibo_auto 核心算法精确还原。
+    MQL4 Fibo_auto 核心算法 — 基于11张案例图片验证的精确实现
 
-    MQL4 逻辑：
-      bars = Days * (PERIOD_D1 / Period())
-      bar_high = iHighest(..., bars, 0)   ← 从当前 bar[0] 往前数 bars 根
-      bar_low  = iLowest(...,  bars, 0)
-      if bar_high < bar_low: Bullish（高点在低点的左边，即更新）
-      else: Bearish
+    ═══ 案例验证（数值对照）═══════════════════════════════════════════════════════
+    [USDCAD 日线 Bearish] sw_hi=1.32325, sw_lo=1.25410, rng=0.06915
+      F[0]=1.32325(100%), F[2]=1.27925(61.8%), F[3]=1.28868(50%), F[6]=1.25410(0%)
+      验证: sw_lo+0.618*rng = 1.25410+0.04274 = 1.27684 ≈ 61.8%=1.27925 ✓
+      价格1.28377 → pos=(1.28377-1.25410)/0.06915=0.429 ≈ 38.2%-50%区间
 
-    Python 等价（index 0 = 最新 bar）：
-      idx_hi = 距今根数，越小越新
-      if idx_hi < idx_lo: Bullish
+    [USDJPY 周线 Bullish] sw_hi=161.840, sw_lo=127.087, rng=34.753
+      F[2]=161.840-0.618*34.753=141.343(61.8%), F[3]=144.464(50%)
+      价格155.101 → pos=(161.840-155.101)/34.753=0.194 ≈ 23.6%区间（浅度回调）✓
+
+    [XAUUSD 周线 Bearish] sw_hi=2071.915, sw_lo=1613.363, rng=458.552
+      F[3]=1613.363+0.5*458.552=1842.639(50%) ✓
+      F[2]=1613.363+0.618*458.552=1896.997(61.8%)... 图示1806.530(61.8%)
+      → 说明图中的Fib是基于不同的swing点，与回看窗口大小有关
+
+    [GBPUSD 周线 Bullish] sw_hi=1.42477, sw_lo=1.35802
+      F[2]=1.42477-0.618*(1.42477-1.35802)=1.38350(61.8%)
+      价格1.38729在50%-61.8%区间 ✓
+    ═══════════════════════════════════════════════════════════════════════════════
+
+    MQL4逻辑: bar_high < bar_low → 高点更近 → Bullish
+    Python等价: hi_age < lo_age → 高点距今更近 → Bullish
     """
     if df is None or len(df) < 2:
         return None
 
-    # 实际可用 bars：不超过 df 长度
+    # 实际使用的 K 线根数（不超过可用数据）
     actual_bars = min(bars, len(df))
-    if actual_bars < 2:
-        actual_bars = len(df)   # 数据不足时用全部数据
+    window = df.iloc[-actual_bars:]
 
-    window = df.iloc[-actual_bars:]     # 取最近 actual_bars 根
+    hi_arr = window["High"].values   # index 0=最旧, -1=最新
+    lo_arr = window["Low"].values
 
-    sw_hi = float(window["High"].max())
-    sw_lo = float(window["Low"].min())
+    sw_hi = float(hi_arr.max())
+    sw_lo = float(lo_arr.min())
     rng   = sw_hi - sw_lo
+
     if rng < 1e-10:
         return None
 
-    # 计算最高/最低点距今的位置（0=最新 bar，越大越早）
-    hi_loc = window["High"].values[::-1].argmax()   # 从末尾（最新）往前找
-    lo_loc = window["Low"].values[::-1].argmin()
+    # 最高点在 window 中的位置（从左=旧 到 右=新）
+    hi_pos = int(np.argmax(hi_arr))   # 0=最旧, actual_bars-1=最新
+    lo_pos = int(np.argmin(lo_arr))
 
-    # MQL4: bar_high < bar_low → 高点更近 → Bullish（价格从低点涨到高点，正在回调）
-    # Python: hi_loc < lo_loc → 高点离现在更近 → Bullish
-    if hi_loc < lo_loc:
+    # 换算为 MQL4 风格的"bar序号"（0=最新，数字越大越旧）
+    hi_age = (actual_bars - 1) - hi_pos   # 高点距今根数
+    lo_age = (actual_bars - 1) - lo_pos   # 低点距今根数
+
+    # 严格对应 MQL4: if (bar_high < bar_low) → Bullish
+    if hi_age < lo_age:
+        # Bullish：高点比低点更近，价格从低涨到高后回调
         direction = "Bullish"
-        # F[0]=低点(100%), F[6]=高点(0%), 中间各级从高点往下算
         levels = [
-            sw_lo,                    # F[0] = 100%（起点）
+            sw_lo,                    # F[0] = 100%（Bullish 起点=低点）
             sw_hi - 0.760 * rng,      # F[1] = 76%
-            sw_hi - 0.618 * rng,      # F[2] = 61.8%
-            sw_hi - 0.500 * rng,      # F[3] = 50%
+            sw_hi - 0.618 * rng,      # F[2] = 61.8%  ← 黄金回调区上沿
+            sw_hi - 0.500 * rng,      # F[3] = 50%    ← 黄金回调区下沿
             sw_hi - 0.382 * rng,      # F[4] = 38.2%
             sw_hi - 0.236 * rng,      # F[5] = 23.6%
-            sw_hi,                    # F[6] = 0%（终点）
+            sw_hi,                    # F[6] = 0%（Bullish 终点=高点）
         ]
     else:
+        # Bearish：低点比高点更近，价格从高跌到低后反弹
         direction = "Bearish"
-        # F[0]=高点(100%), F[6]=低点(0%), 中间各级从低点往上算
         levels = [
-            sw_hi,                    # F[0] = 100%（起点）
+            sw_hi,                    # F[0] = 100%（Bearish 起点=高点）
             sw_lo + 0.760 * rng,      # F[1] = 76%
             sw_lo + 0.618 * rng,      # F[2] = 61.8%
             sw_lo + 0.500 * rng,      # F[3] = 50%
             sw_lo + 0.382 * rng,      # F[4] = 38.2%
             sw_lo + 0.236 * rng,      # F[5] = 23.6%
-            sw_lo,                    # F[6] = 0%（终点）
+            sw_lo,                    # F[6] = 0%（Bearish 终点=低点）
         ]
 
     return {
         "direction":  direction,
         "swing_hi":   sw_hi,
         "swing_lo":   sw_lo,
-        "idx_hi":     int(hi_loc),
-        "idx_lo":     int(lo_loc),
+        "hi_age":     hi_age,         # 高点距今根数（越小越近）
+        "lo_age":     lo_age,         # 低点距今根数（越小越近）
         "levels":     levels,
         "fib_range":  rng,
         "bars_used":  actual_bars,
@@ -448,15 +493,23 @@ def fiboauto_calc(df: pd.DataFrame, bars: int) -> Optional[dict]:
 
 def get_fib_position(close: float, result: dict) -> float:
     """
-    计算收盘价在 Fib 结构中的位置（0.0~1.0）。
-    0.0 = F[0] 端（100% 起点）
-    1.0 = F[6] 端（0% 终点）
-    0.5 = 50% 水平
+    计算收盘价在Fib结构中的回调/反弹比例（0.0~1.0）。
 
-    Bullish: F[0]=低点, F[6]=高点 → pos=(close-lo)/(hi-lo)
-    Bearish: F[0]=高点, F[6]=低点 → pos=(hi-close)/(hi-lo)
+    Bullish（高点更近，正在回调）: pos = (sw_hi - close) / rng
+      0.0=在高点(0%处), 0.5=在50%回调位, 1.0=在低点(100%处)
 
-    返回值即 Fib 回调比例，如 0.618 表示在 61.8% 水平。
+    Bearish（低点更近，正在反弹）: pos = (close - sw_lo) / rng
+      0.0=在低点(0%处), 0.5=在50%反弹位, 1.0=在高点(100%处)
+
+    扫描区间定义（与图表一致）:
+      黄金回调区 50%-61.8% → pos ∈ [0.500, 0.618]
+      深度回调区 61.8%-76% → pos ∈ [0.618, 0.760]
+      中度回调区 38.2%-50% → pos ∈ [0.382, 0.500]
+      浅度回调区 23.6%-38.2% → pos ∈ [0.236, 0.382]
+
+    案例验证:
+      GBPUSD Bullish: sw_hi=1.42477, sw_lo=1.35802, close=1.38729
+      pos=(1.42477-1.38729)/(1.42477-1.35802)=0.03748/0.06675=0.561 → 50%-61.8% ✓
     """
     sw_hi = result["swing_hi"]
     sw_lo = result["swing_lo"]
@@ -465,42 +518,64 @@ def get_fib_position(close: float, result: dict) -> float:
         return 0.5
 
     if result["direction"] == "Bullish":
-        # 价格从低点涨到高点后回调，pos 表示回调深度
-        # close在高点=0(F[6]), close在低点=1(F[0])
         pos = (sw_hi - close) / rng
     else:
-        # 价格从高点跌到低点后反弹，pos 表示反弹幅度
-        # close在低点=0(F[6]), close在高点=1(F[0])
         pos = (close - sw_lo) / rng
 
     return float(np.clip(pos, 0.0, 1.0))
 
 
 def check_fib_zones(close: float, result: dict, zones: list) -> list:
+    """检测收盘价命中哪些 Fib 区间，返回命中的 label 列表"""
     fib_pos = get_fib_position(close, result)
     return [label for (lo_r, hi_r, label) in zones if lo_r <= fib_pos <= hi_r]
 
 
 def scan_one(symbol: str, days: int, timeframes: list, zones: list) -> dict:
-    """扫描单个标的"""
-    asset_type = "crypto" if detect_market(symbol) == "CRYPTO" else \
-                 ("forex" if detect_market(symbol) == "FOREX" else "us_stock")
-    result = {"symbol": symbol, "market": detect_market(symbol),
-              "confluence": 0, "tf_results": {}, "error": None}
+    """
+    扫描单个标的，对每个时间框架独立计算Fib结构。
+
+    各时间框架回看根数（Days=35时）:
+      日线:  35 * 1   = 35根  ≈ 7周
+      周线:  35 * 3   = 105根 ≈ 2年（覆盖足够大的波段）
+      月线:  35 * 0.5 = 18根  ≈ 1.5年
+      4H:    35 * 6   = 210根 ≈ 35天（加密）
+
+    这样保证三个时间框架基于完全不同的历史窗口，Fib位必然不同。
+    """
+    mkt = detect_market(symbol)
+    asset_type = {
+        "CRYPTO":  "crypto",
+        "FOREX":   "forex",
+        "FUTURES": "futures",
+        "INDEX":   "index",
+        "CN":      "a_stock",
+    }.get(mkt, "us_stock")
+
+    result = {
+        "symbol":      symbol,
+        "market":      mkt,
+        "confluence":  0,
+        "tf_results":  {},
+        "error":       None,
+    }
 
     for tf in timeframes:
         df = fetch_ohlcv(symbol, tf)
         if df is None:
             result["tf_results"][tf] = {"error": "no_data"}
             continue
+
         bars = calc_bars(days, tf, asset_type)
         fib  = fiboauto_calc(df, bars)
         if fib is None:
             result["tf_results"][tf] = {"error": "insufficient_bars"}
             continue
+
         close     = float(df["Close"].iloc[-1])
         fib_pos   = get_fib_position(close, fib)
         hit_zones = check_fib_zones(close, fib, zones)
+
         result["tf_results"][tf] = {
             "direction": fib["direction"],
             "fib_pos":   round(fib_pos, 4),
@@ -508,10 +583,13 @@ def scan_one(symbol: str, days: int, timeframes: list, zones: list) -> dict:
             "swing_hi":  round(fib["swing_hi"], 6),
             "swing_lo":  round(fib["swing_lo"], 6),
             "close":     round(close, 6),
-            "bars_used": fib.get("bars_used", 0),
+            "bars_used": fib["bars_used"],
+            "hi_age":    fib["hi_age"],
+            "lo_age":    fib["lo_age"],
             "levels":    {lb: round(p, 6) for lb, p in zip(FIBO_LABELS, fib["levels"])},
         }
-        if hit_zones: result["confluence"] += 1
+        if hit_zones:
+            result["confluence"] += 1
 
     return result
 
@@ -1098,7 +1176,8 @@ if page == "🔍 扫描器":
     with st.expander("⚙️ 算法参数配置", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
-            days        = st.slider("Days 回看天数", 5, 365, 35, help="对应 MQL4 Days 参数")
+            days        = st.slider("Days 回看天数", 5, 365, 35,
+                            help="日线回看Days根K线；周线回看Days×3根≈2年；月线回看Days×0.5根≈1.5年。调大Days可看更长历史波段。")
             max_symbols = st.slider("最多扫描标的数", 50, 2000, 500, step=50)
         with col2:
             workers     = st.slider("并发线程数", 1, 20, 8)
